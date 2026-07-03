@@ -1,5 +1,5 @@
 {
-  "name": "@frachter-app/sdk",
+  "name": "@frachter-app/wasmer-sdk",
   "version": "0.10.0-fr.1",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",

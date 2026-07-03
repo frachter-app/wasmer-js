@@ -1,7 +1,7 @@
 name: publish
 
 # The ONLY workflow on this fork. Builds the patched @wasmer/sdk (wasm-pack ->
-# wasm-opt -> rollup) and publishes it as @frachter-app/sdk to GitHub Packages.
+# wasm-opt -> rollup) and publishes it as @frachter-app/wasmer-sdk to GitHub Packages.
 # Inherited upstream CI (ci.yml, release-please.yml) was removed.
 #
 # Triggers: manual dispatch, or a pushed tag matching v*-fr.* (the pre-release
@@ -69,7 +69,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish @frachter-app/sdk
+      - name: Publish @frachter-app/wasmer-sdk
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
