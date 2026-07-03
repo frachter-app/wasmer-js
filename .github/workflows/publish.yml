@@ -1,0 +1,75 @@
+name: publish
+
+# The ONLY workflow on this fork. Builds the patched @wasmer/sdk (wasm-pack ->
+# wasm-opt -> rollup) and publishes it as @frachter-app/sdk to GitHub Packages.
+# Inherited upstream CI (ci.yml, release-please.yml) was removed.
+#
+# Triggers: manual dispatch, or a pushed tag matching v*-fr.* (the pre-release
+# scheme — GitHub Packages ignores +build-metadata, so the fork version must be
+# a semver pre-release like 0.10.0-fr.1).
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*-fr.*'
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins nightly-2025-07-05 (+atomics for shared memory)
+      # and the wasm targets; the toolchain action reads it automatically.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-07-05
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      # Caches ~/.cargo (registry + GIT deps, incl. the frachter-app/wasmer
+      # patch) and target/. Keyed on Cargo.lock so a new wasmer fork commit
+      # (which updates the locked git rev) busts the cache correctly.
+      - name: Cache cargo + target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: frachter-sdk-publish
+
+      # Prebuilt wasm-pack binary (cached by the action), matching upstream CI.
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+
+      # wasm-opt ships in the binaryen apt package (upstream CI uses the same).
+      - name: Install wasm-opt (binaryen)
+        run: sudo apt-get update && sudo apt-get install -y binaryen
+
+      - name: Setup Node (GitHub Packages registry)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+          scope: '@frachter-app'
+          cache: npm
+
+      - name: Install JS deps
+        run: npm ci
+
+      # Repo's own build: wasm-pack --release --target=web --weak-refs --no-pack
+      # -> wasm-opt -O2 -> rollup. Uses the patched crates via [patch.crates-io].
+      - name: Build
+        run: npm run build
+
+      - name: Publish @frachter-app/sdk
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

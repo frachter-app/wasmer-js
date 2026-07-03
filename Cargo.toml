@@ -138,11 +138,21 @@ dwarf-debug-info = false
 wasm-opt = ["--enable-threads", "--enable-bulk-memory", "-Oz"]
 
 [patch.crates-io]
-#webc = {git = "https://github.com/wasmerio/pirita", branch = "in-memory-manifest"}
-#virtual-net = { git = "https://github.com/wasmerio/wasmer", branch = "master" }
-#virtual-fs = { git = "https://github.com/wasmerio/wasmer", branch = "master" }
-#wasmer-wasix = { git = "https://github.com/wasmerio/wasmer", branch = "master" }
-#wasmer = { git = "https://github.com/wasmerio/wasmer", branch = "master" }
+# frachter-app fork (opfs-vfs#113): patched wasmer family from
+# frachter-app/wasmer@main-opfs — `wasmer` carries the exnref polyfill fix and
+# `wasmer-wasix` adds proc_exit2, both required for wasmer/edgejs-quickjs to run
+# in the browser. The whole wasmer-family is repointed at the fork (not just the
+# two edited crates) so Cargo resolves one coherent source tree rather than
+# mixing crates.io siblings with git-forked ones. `webc` lives in a separate
+# repo (pirita) and stays on crates.io.
+wasmer = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+wasmer-wasix = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+wasmer-types = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+wasmer-config = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+wasmer-package = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+wasmer-backend-api = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+virtual-fs = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
+virtual-net = { git = "https://github.com/frachter-app/wasmer", branch = "main-opfs" }
 # webc = { path = "../pirita/crates/webc" }
 # virtual-net = { path = "../wasmer/lib/virtual-net" }
 # virtual-fs = { path = "../wasmer/lib/virtual-fs" }

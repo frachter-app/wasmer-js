@@ -1,6 +1,10 @@
 {
-  "name": "@wasmer/sdk",
-  "version": "0.10.0",
+  "name": "@frachter-app/sdk",
+  "version": "0.10.0-fr.1",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "unpkg": "dist/unpkg.mjs",
   "main": "dist/index.mjs",
   "module": "dist/index.mjs",
