@@ -135,7 +135,10 @@ demangle-name-section = false
 dwarf-debug-info = false
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["--enable-threads", "--enable-bulk-memory", "-Oz"]
+# --enable-exception-handling is required because the patched wasmer/edgejs
+# path pulls in wasm exception-handling (exnref); without it wasm-opt fails with
+# "error parsing wasm" (opfs-vfs#113). Needs a modern binaryen (CI installs one).
+wasm-opt = ["--enable-threads", "--enable-bulk-memory", "--enable-exception-handling", "--enable-reference-types", "-Oz"]
 
 [patch.crates-io]
 # frachter-app fork (opfs-vfs#113): patched wasmer family from

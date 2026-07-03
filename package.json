@@ -56,7 +56,7 @@
     "./*": "./dist/*"
   },
   "scripts": {
-    "build": "wasm-pack build --release --target=web --weak-refs --no-pack && wasm-opt pkg/wasmer_js_bg.wasm -O2 -o pkg/wasmer_js_bg.wasm && npm run build:rollup",
+    "build": "wasm-pack build --release --target=web --weak-refs --no-pack && wasm-opt pkg/wasmer_js_bg.wasm --enable-threads --enable-bulk-memory --enable-exception-handling --enable-reference-types -O2 -o pkg/wasmer_js_bg.wasm && npm run build:rollup",
     "build:rollup": "rollup -c --environment BUILD:production",
     "build:dev": "wasm-pack build --dev --target=web --weak-refs --no-pack && rollup -c --environment BUILD:development",
     "dev": "rollup -c -w",
