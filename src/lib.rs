@@ -1,10 +1,15 @@
 // #![feature(once_cell_try)]
+// Enables `core::arch::wasm32::memory_atomic_wait32` / `memory_atomic_notify`
+// used by the fetch bridge (opfs-vfs#167) to block guest threads on shared
+// linear memory. Nightly-only; the SDK already builds on nightly.
+#![feature(stdarch_wasm_atomic_wait)]
 
 #[cfg(test)]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 extern crate alloc;
 
+mod fetch_bridge;
 pub mod fs;
 mod instance;
 mod js_runtime;
@@ -24,6 +29,9 @@ mod ws;
 use std::sync::Mutex;
 
 pub use crate::{
+    fetch_bridge::{
+        fetch_bridge_pending_request, fetch_bridge_submit_response, reset_fetch_bridge, FetchDevice,
+    },
     fs::{Directory, DirectoryInit},
     instance::{Instance, JsOutput},
     js_runtime::{JsRuntime, RuntimeOptions},
