@@ -3481,8 +3481,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 [[package]]
 name = "virtual-fs"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8defc513ce70576bdbb4305ee67c0cba647af18c0995de8f1fa1271b724c9859"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3509,8 +3508,7 @@ dependencies = [
 [[package]]
 name = "virtual-mio"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a14806a3f25b70315764760c376d9f68937f5467013891bc7497a33d24105097"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3523,8 +3521,7 @@ dependencies = [
 [[package]]
 name = "virtual-net"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a7dccbe5d8d3a49e2b43a2c5a4287139e33ba04c03279bfc8a0aef82def2043"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3800,8 +3797,7 @@ dependencies = [
 [[package]]
 name = "wasmer"
 version = "6.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d85671948f8886a1cc946141c0b688a5617603c103699a5fceeebeb4e75b0b6"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "bindgen",
  "bytes",
@@ -3833,8 +3829,7 @@ dependencies = [
 [[package]]
 name = "wasmer-backend-api"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef123baf425c415c1538fcf6da66d030c69d47ee8a9acc063e9f7b890c7ec893"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "cynic",
@@ -3859,8 +3854,7 @@ dependencies = [
 [[package]]
 name = "wasmer-compiler"
 version = "6.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4946475adc0af265af8f10aadf4d4a3c64845bcd3801c655bdd81ce5e3ee869b"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "backtrace",
  "bytes",
@@ -3891,8 +3885,7 @@ dependencies = [
 [[package]]
 name = "wasmer-config"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6c7a72bfcba1000b7609e034e0d470575fae8215b597c2c6554661729d64c22"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "bytesize",
@@ -3914,8 +3907,7 @@ dependencies = [
 [[package]]
 name = "wasmer-derive"
 version = "6.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c546f3380840cd63fdcc390f04cd19002f2dfa19b4691b77ecbd27642bd93452"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "proc-macro-error2",
  "proc-macro2",
@@ -3926,8 +3918,7 @@ dependencies = [
 [[package]]
 name = "wasmer-journal"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6459cd00a0000e38dd4386bec1d99687813677bb01bfe69120f0f3eaedae0a06"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -3994,8 +3985,7 @@ dependencies = [
 [[package]]
 name = "wasmer-package"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedc3a5cd721e8b12778d1858b9583aca8b91927a73f5fdf0c876cd5bbb6ac56"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4023,8 +4013,7 @@ dependencies = [
 [[package]]
 name = "wasmer-types"
 version = "6.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a4027ce165e8dc776dc5e2a3231a96983e6dc7330efd97b793cfc4e973ad0c"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "bytecheck 0.6.11",
  "enum-iterator",
@@ -4046,8 +4035,7 @@ dependencies = [
 [[package]]
 name = "wasmer-vm"
 version = "6.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c37d5be291eea00a00d077ce3a427bb3074709ee386ec358f18f0b7da33be01"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "backtrace",
  "cc",
@@ -4075,8 +4063,7 @@ dependencies = [
 [[package]]
 name = "wasmer-wasix"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a804fcfbdbbfe5b2d6fb30e741e22a21e88e964dedfea9e609f13a52823bfe"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4149,8 +4136,7 @@ dependencies = [
 [[package]]
 name = "wasmer-wasix-types"
 version = "0.601.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d2b7dad6c826f48a972709e5950a80157cb3b6bb12c6f51778282e85dc17096"
+source = "git+https://github.com/frachter-app/wasmer?branch=main-opfs#8958d4d6a0e03f2808eec6d19bba448ac703d550"
 dependencies = [
  "anyhow",
  "bitflags 1.3.2",
