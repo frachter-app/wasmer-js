@@ -25,12 +25,12 @@
 //!
 //! ## Guest protocol (device file, one JSON object per direction)
 //!
-//! The host mounts a [`FetchDevice`] filesystem (by convention at `/dev`, so the
-//! guest sees `/dev/frachter-fetch`). The prelude does:
+//! The host mounts a [`FetchDevice`] filesystem (by convention at `/frachter`, so the
+//! guest sees `/frachter/fetch`). The prelude does:
 //!
 //! ```js
-//! fs.writeFileSync('/dev/frachter-fetch', JSON.stringify(request));
-//! const responseJson = fs.readFileSync('/dev/frachter-fetch', 'utf8');
+//! fs.writeFileSync('/frachter/fetch', JSON.stringify(request));
+//! const responseJson = fs.readFileSync('/frachter/fetch', 'utf8');
 //! ```
 //!
 //! * `write` buffers the request bytes in the open file handle.
@@ -49,16 +49,12 @@ use std::{
     io::{self, Cursor},
     path::{Path, PathBuf},
     pin::Pin,
-    sync::{
-        atomic::{AtomicI32, Ordering},
-        Mutex,
-    },
+    sync::atomic::{AtomicI32, AtomicU32, Ordering},
     task::{Context, Poll},
     time::Duration,
 };
 
 use futures::future::BoxFuture;
-use once_cell::sync::Lazy;
 use tokio::io::{AsyncRead, AsyncSeek, AsyncWrite};
 use virtual_fs::{
     FileOpener, FileSystem, FileType, FsError, Metadata, OpenOptions, OpenOptionsConfig, ReadDir,
@@ -66,9 +62,11 @@ use virtual_fs::{
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// Conventional device file name (mounted under `/dev`). Kept in sync with the
-/// TypeScript broker + prelude.
-pub const FETCH_DEVICE_FILE_NAME: &str = "frachter-fetch";
+/// Conventional device file name. Mount [`FetchDevice`] at `/frachter` so the
+/// guest sees `/frachter/fetch`. NOTE: do NOT mount at `/dev` — edgejs-quickjs
+/// reserves it and a `/dev` mount makes the guest exit before `main()`
+/// (verified opfs-vfs#167). Kept in sync with the TypeScript broker + prelude.
+pub const FETCH_DEVICE_FILE_NAME: &str = "fetch";
 
 /// Max time the guest blocks waiting for a broker response before giving up with
 /// a "bridge not attached / timed out" error. Guards against a missing broker.
@@ -78,45 +76,125 @@ const GUEST_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const WAIT_SLICE_NS: i64 = 100_000_000; // 100ms
 
 // --- Shared state (lives in linear memory → visible on every guest thread) ---
+//
+// IMPORTANT: only *fixed-address* statics are reliably shared across the guest
+// WASIX worker and the broker thread (both instantiate the module over the same
+// shared `WebAssembly.Memory`). A `Lazy<Mutex<Vec<u8>>>` is NOT shared — its heap
+// buffer pointer diverges per instance (verified: host saw reqSeq bump but the
+// Vec length stayed 0). We therefore keep the payloads in fixed-size `static mut`
+// byte arrays that live at fixed data-segment offsets, guarded by atomics.
+
+/// Max serialized payload size for a single request/response (bytes). Requests
+/// are small; responses are base64 (≈4/3 of body) + JSON envelope. 24 MiB covers
+/// a ~16 MiB body. These are zero-init `.bss`-style regions — they do NOT bloat
+/// the wasm binary, only reserve shared linear memory. The broker's
+/// `maxResponseBytes` should stay below the body size this implies.
+const BRIDGE_BUFFER_BYTES: usize = 24 * 1024 * 1024;
 
 /// Bumped by the guest when it publishes a request.
 static REQ_SEQ: AtomicI32 = AtomicI32::new(0);
 /// Bumped by the host when it submits the matching response. The guest blocks on
 /// this word via a wasm atomic wait.
 static RESP_SEQ: AtomicI32 = AtomicI32::new(0);
-/// The pending serialized request bytes.
-static REQUEST: Lazy<Mutex<Vec<u8>>> = Lazy::new(Mutex::default);
-/// The serialized response bytes submitted by the host.
-static RESPONSE: Lazy<Mutex<Vec<u8>>> = Lazy::new(Mutex::default);
+/// Byte length of the current request payload in `REQUEST_BUF`.
+static REQ_LEN: AtomicU32 = AtomicU32::new(0);
+/// Byte length of the current response payload in `RESPONSE_BUF`.
+static RESP_LEN: AtomicU32 = AtomicU32::new(0);
+
+/// Fixed-address shared request buffer.
+static mut REQUEST_BUF: [u8; BRIDGE_BUFFER_BYTES] = [0u8; BRIDGE_BUFFER_BYTES];
+/// Fixed-address shared response buffer.
+static mut RESPONSE_BUF: [u8; BRIDGE_BUFFER_BYTES] = [0u8; BRIDGE_BUFFER_BYTES];
+
+/// Copy `src` into the request buffer and publish its length. Truncates if the
+/// payload exceeds the buffer (requests are tiny; this is defensive).
+fn store_request(src: &[u8]) {
+    let n = src.len().min(BRIDGE_BUFFER_BYTES);
+    // SAFETY: single writer (the guest) at a time; length published via atomic
+    // after the copy so readers only see complete data.
+    unsafe {
+        let dst = core::ptr::addr_of_mut!(REQUEST_BUF) as *mut u8;
+        core::ptr::copy_nonoverlapping(src.as_ptr(), dst, n);
+    }
+    REQ_LEN.store(n as u32, Ordering::SeqCst);
+}
+
+/// Read the current request payload out of the shared buffer.
+fn load_request() -> Vec<u8> {
+    let n = REQ_LEN.load(Ordering::SeqCst) as usize;
+    let n = n.min(BRIDGE_BUFFER_BYTES);
+    // SAFETY: read-only view of `n` bytes published by `store_request`.
+    unsafe {
+        let ptr = core::ptr::addr_of!(REQUEST_BUF) as *const u8;
+        core::slice::from_raw_parts(ptr, n).to_vec()
+    }
+}
+
+/// Copy `src` into the response buffer and publish its length.
+fn store_response(src: &[u8]) {
+    let n = src.len().min(BRIDGE_BUFFER_BYTES);
+    // SAFETY: single writer (the host) at a time; length published after copy.
+    unsafe {
+        let dst = core::ptr::addr_of_mut!(RESPONSE_BUF) as *mut u8;
+        core::ptr::copy_nonoverlapping(src.as_ptr(), dst, n);
+    }
+    RESP_LEN.store(n as u32, Ordering::SeqCst);
+}
+
+/// Read the current response payload out of the shared buffer.
+fn load_response() -> Vec<u8> {
+    let n = RESP_LEN.load(Ordering::SeqCst) as usize;
+    let n = n.min(BRIDGE_BUFFER_BYTES);
+    // SAFETY: read-only view of `n` bytes published by `store_response`.
+    unsafe {
+        let ptr = core::ptr::addr_of!(RESPONSE_BUF) as *const u8;
+        core::slice::from_raw_parts(ptr, n).to_vec()
+    }
+}
 
 fn bridge_error(message: &str) -> Vec<u8> {
     let escaped = message.replace('\\', "\\\\").replace('"', "\\\"");
     format!(r#"{{"__frachterBridgeError":"{escaped}"}}"#).into_bytes()
 }
 
-/// Guest side: publish `request`, block until the host submits a response (or we
-/// time out), and return the response bytes.
-fn dispatch_blocking(request: Vec<u8>) -> Vec<u8> {
-    // Publish the request and remember the response seq we're waiting to reach.
-    *REQUEST.lock().unwrap() = request;
-    let target_resp = RESP_SEQ.load(Ordering::SeqCst) + 1;
+/// Guest side, write path: publish `request` to shared state and signal the
+/// host. Does NOT block. Because `writeFileSync` and `readFileSync` use SEPARATE
+/// file handles, the request is published here (on write close) and the response
+/// is awaited by a later read handle via [`await_response`]. v1 is serialized
+/// (one in-flight), so `REQ_SEQ`/`RESP_SEQ` equality tracks answered-ness.
+fn publish_request(request: &[u8]) {
+    store_request(request);
     REQ_SEQ.fetch_add(1, Ordering::SeqCst);
-    // Wake any host loop parked on REQ_SEQ.
     atomic_notify(&REQ_SEQ);
+}
 
+/// Block until the host has answered the latest published request
+/// (`RESP_SEQ` catches up to `REQ_SEQ`) or the guest wait times out. Returns
+/// `true` if answered, `false` on timeout. Does not consume the response.
+fn wait_for_response_ready() -> bool {
     let deadline = now_ms() + GUEST_WAIT_TIMEOUT.as_millis() as f64;
     loop {
-        let current = RESP_SEQ.load(Ordering::SeqCst);
-        if current >= target_resp {
-            return std::mem::take(&mut *RESPONSE.lock().unwrap());
+        let req = REQ_SEQ.load(Ordering::SeqCst);
+        let resp = RESP_SEQ.load(Ordering::SeqCst);
+        // Answered when the response seq has caught up to the request seq.
+        if resp >= req && req > 0 {
+            return true;
         }
         if now_ms() >= deadline {
-            return bridge_error(
-                "network bridge not attached: no fetch broker responded within 30s",
-            );
+            return false;
         }
         // Block this (guest worker) thread on RESP_SEQ for a slice.
-        atomic_wait(&RESP_SEQ, current, WAIT_SLICE_NS);
+        atomic_wait(&RESP_SEQ, resp, WAIT_SLICE_NS);
+    }
+}
+
+/// Guest side, read path: block until the host answers, then return the response
+/// bytes (or a gating error envelope on timeout).
+fn await_response() -> Vec<u8> {
+    if wait_for_response_ready() {
+        load_response()
+    } else {
+        bridge_error("network bridge not attached: no fetch broker responded within 30s")
     }
 }
 
@@ -157,8 +235,7 @@ pub fn fetch_bridge_pending_request() -> Option<js_sys::Uint8Array> {
     let req_seq = REQ_SEQ.load(Ordering::SeqCst);
     let resp_seq = RESP_SEQ.load(Ordering::SeqCst);
     if req_seq == resp_seq + 1 {
-        let req = REQUEST.lock().unwrap();
-        Some(js_sys::Uint8Array::from(req.as_slice()))
+        Some(js_sys::Uint8Array::from(load_request().as_slice()))
     } else {
         None
     }
@@ -168,9 +245,24 @@ pub fn fetch_bridge_pending_request() -> Option<js_sys::Uint8Array> {
 /// wake the blocked guest thread.
 #[wasm_bindgen(js_name = fetchBridgeSubmitResponse)]
 pub fn fetch_bridge_submit_response(bytes: js_sys::Uint8Array) {
-    *RESPONSE.lock().unwrap() = bytes.to_vec();
+    store_response(&bytes.to_vec());
     RESP_SEQ.fetch_add(1, Ordering::SeqCst);
     atomic_notify(&RESP_SEQ);
+}
+
+/// Debug probe: report the current sequence words + buffer lengths as seen by
+/// THIS wasm instance/thread. Used to diagnose cross-thread static sharing.
+#[wasm_bindgen(js_name = fetchBridgeDebugState)]
+pub fn fetch_bridge_debug_state() -> String {
+    let req_ptr = &REQ_SEQ as *const AtomicI32 as usize;
+    format!(
+        "{{\"reqSeq\":{},\"respSeq\":{},\"reqLen\":{},\"respLen\":{},\"reqSeqAddr\":{}}}",
+        REQ_SEQ.load(Ordering::SeqCst),
+        RESP_SEQ.load(Ordering::SeqCst),
+        REQ_LEN.load(Ordering::SeqCst),
+        RESP_LEN.load(Ordering::SeqCst),
+        req_ptr,
+    )
 }
 
 /// Reset the bridge sequences and buffers (test / teardown helper).
@@ -178,33 +270,48 @@ pub fn fetch_bridge_submit_response(bytes: js_sys::Uint8Array) {
 pub fn reset_fetch_bridge() {
     REQ_SEQ.store(0, Ordering::SeqCst);
     RESP_SEQ.store(0, Ordering::SeqCst);
-    REQUEST.lock().unwrap().clear();
-    RESPONSE.lock().unwrap().clear();
+    REQ_LEN.store(0, Ordering::SeqCst);
+    RESP_LEN.store(0, Ordering::SeqCst);
 }
 
 // --- Virtual device file ------------------------------------------------------
 
-/// The virtual device file. `write` buffers a request; the first `read` after a
-/// `write` performs the blocking host round-trip and buffers the response.
+/// The virtual device file. Because the guest uses SEPARATE handles for
+/// `writeFileSync` (request) and `readFileSync` (response), the request is
+/// published to shared state when the WRITE handle flushes/closes, and the READ
+/// handle blocks on the shared response. So a single handle either writes (and
+/// publishes on flush) or reads (and blocks-then-serves) — never both.
 #[derive(Debug)]
 struct FetchDeviceFile {
-    request: Vec<u8>,
+    /// Bytes accumulated by the write path since open (the pending request).
+    write_buf: Vec<u8>,
+    /// Whether the accumulated write_buf has already been published.
+    published: bool,
+    /// Response cursor for the read path (filled lazily on first read).
     response: Option<Cursor<Vec<u8>>>,
 }
 
 impl FetchDeviceFile {
     fn new() -> Self {
         FetchDeviceFile {
-            request: Vec::new(),
+            write_buf: Vec::new(),
+            published: false,
             response: None,
         }
     }
 
-    fn ensure_dispatched(&mut self) {
+    /// Publish the accumulated request to shared state (write path, on flush/close).
+    fn publish_if_pending(&mut self) {
+        if !self.published && !self.write_buf.is_empty() {
+            publish_request(&self.write_buf);
+            self.published = true;
+        }
+    }
+
+    /// Ensure the response is loaded (read path): block until the host answers.
+    fn ensure_response(&mut self) {
         if self.response.is_none() {
-            let request = std::mem::take(&mut self.request);
-            let bytes = dispatch_blocking(request);
-            self.response = Some(Cursor::new(bytes));
+            self.response = Some(Cursor::new(await_response()));
         }
     }
 }
@@ -215,7 +322,7 @@ impl AsyncRead for FetchDeviceFile {
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        self.ensure_dispatched();
+        self.ensure_response();
         let cursor = self.response.as_mut().expect("response buffered above");
         Pin::new(cursor).poll_read(cx, buf)
     }
@@ -227,21 +334,26 @@ impl AsyncWrite for FetchDeviceFile {
         _cx: &mut Context<'_>,
         data: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // A fresh write starts a new request/response cycle.
-        if self.response.is_some() {
-            self.response = None;
-            self.request.clear();
-        }
-        self.request.extend_from_slice(data);
+        self.write_buf.extend_from_slice(data);
         Poll::Ready(Ok(data.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.publish_if_pending();
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.publish_if_pending();
         Poll::Ready(Ok(()))
+    }
+}
+
+impl Drop for FetchDeviceFile {
+    fn drop(&mut self) {
+        // Ensure a request written without an explicit flush is still published
+        // when the write handle is closed.
+        self.publish_if_pending();
     }
 }
 
@@ -266,10 +378,12 @@ impl VirtualFile for FetchDeviceFile {
         0
     }
     fn size(&self) -> u64 {
-        self.response
-            .as_ref()
-            .map(|c| c.get_ref().len() as u64)
-            .unwrap_or(0)
+        // `readFileSync` stats the file to size its read buffer BEFORE reading,
+        // so block here until the host has answered — otherwise it would size to
+        // 0 and read nothing. Idempotent: the actual read also awaits + serves
+        // from the same shared response buffer.
+        wait_for_response_ready();
+        RESP_LEN.load(Ordering::SeqCst) as u64
     }
     fn set_len(&mut self, _new_size: u64) -> Result<(), FsError> {
         Ok(())
@@ -281,7 +395,7 @@ impl VirtualFile for FetchDeviceFile {
         mut self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<io::Result<usize>> {
-        self.ensure_dispatched();
+        self.ensure_response();
         let cursor = self.response.as_ref().expect("response buffered above");
         let remaining = cursor.get_ref().len() as u64 - cursor.position();
         Poll::Ready(Ok(remaining as usize))
@@ -294,7 +408,7 @@ impl VirtualFile for FetchDeviceFile {
 // --- Single-file device filesystem -------------------------------------------
 
 /// A single-file filesystem exposing the fetch device. Mounted by the host
-/// (typically at `/dev`) so the guest sees `/dev/frachter-fetch`. The struct is
+/// (typically at `/frachter`) so the guest sees `/frachter/fetch`. The struct is
 /// both the `FileSystem` and its own `FileOpener` (mirrors `StaticFileSystem`).
 #[derive(Debug)]
 struct FetchDeviceFs;
@@ -387,11 +501,11 @@ impl FileSystem for FetchDeviceFs {
 
 /// JS-facing handle: constructs a [`Directory`](crate::Directory) backed by the
 /// fetch device filesystem, ready to be passed in a `mount` map (e.g.
-/// `{ "/dev": device }`).
+/// `{ "/frachter": device }`).
 ///
 /// ```js
 /// const device = FetchDevice.mount();
-/// await pkg.entrypoint.run({ mount: { "/dev": device }, ... });
+/// await pkg.entrypoint.run({ mount: { "/frachter": device }, ... });
 /// ```
 #[wasm_bindgen]
 pub struct FetchDevice;
@@ -399,7 +513,7 @@ pub struct FetchDevice;
 #[wasm_bindgen]
 impl FetchDevice {
     /// Create a [`Directory`](crate::Directory) exposing the fetch device file.
-    /// Mount it at `/dev` (or any parent dir) so the guest sees
+    /// Mount it at `/frachter` (or any non-reserved parent dir) so the guest sees
     /// `<mount>/frachter-fetch`.
     #[wasm_bindgen(js_name = "mount")]
     pub fn mount() -> crate::Directory {
