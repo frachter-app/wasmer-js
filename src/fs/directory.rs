@@ -144,6 +144,12 @@ impl Directory {
 }
 
 impl Directory {
+    /// Wrap an arbitrary [`FileSystem`] as a mountable [`Directory`]. Used by
+    /// the fetch bridge (opfs-vfs#167) to expose a virtual device filesystem.
+    pub(crate) fn from_filesystem(fs: Arc<dyn FileSystem>) -> Self {
+        Directory(fs)
+    }
+
     async fn _read_file(&self, mut path: String) -> Result<Vec<u8>, Error> {
         if !path.starts_with('/') {
             path.insert(0, '/');
