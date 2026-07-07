@@ -79,6 +79,7 @@ impl Directory {
             .new_open_options()
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&path)?;
 
         let contents = contents.as_bytes();
