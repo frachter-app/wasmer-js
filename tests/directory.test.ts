@@ -50,6 +50,21 @@ describe("In-Memory Directory", function () {
     ]);
   });
 
+  it("truncates when overwriting with shorter content (gh196)", async () => {
+    const dir = new Directory();
+
+    // Long first version, then overwrite with a shorter one — the #196 repro.
+    const longContent = "line1\nline2\nline3\nline4\nline5\nline6\n";
+    const shortContent = "new1\nnew2\n";
+    await dir.writeFile("/hono.ts", encoder.encode(longContent));
+    await dir.writeFile("/hono.ts", encoder.encode(shortContent));
+
+    const contents = decoder.decode(await dir.readFile("/hono.ts"));
+
+    // Must be exactly the short content — no stale tail of the longer version.
+    expect(contents).to.equal(shortContent);
+  });
+
   it("can be created with DirectoryInit", async () => {
     const dir = new Directory({
       "/file.txt": "file",
